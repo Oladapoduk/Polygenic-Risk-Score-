@@ -1,0 +1,103 @@
+module load gcc/7.1.0
+module load R/4.1.1
+R
+
+
+library(TwoSampleMR)
+
+hgt_exp<- read_exposure_data(
+  filename = '/data/WHRI-Panos-Scratch/hhy600/Height_Lung_CVD/Dataset/MR/HGT_CAD_20150_20151_NEIL_MR_nominal.txt',
+  sep = '\t',
+  snp_col = 'SNP_HGT',
+  beta_col = 'beta_hgt',
+  se_col ='se_hgt',
+  effect_allele_col = 'Effect_hgt',
+  other_allele_col = 'Other_hgt',
+  eaf_col ='eaf_hgt',
+  pval_col = 'pvalue_hgt'
+)
+
+dim(hgt_exp)
+
+cad_out<-read_outcome_data(
+  filename = '/data/WHRI-Panos-Scratch/hhy600/Height_Lung_CVD/Dataset/MR/HGT_CAD_20150_20151_NEIL_MR_nominal.txt',
+  sep = "\t",
+  snp_col = "SNP_CAD",
+  beta_col = "beta_cad",
+  se_col = "se_cad",
+  eaf_col = "eaf_cad",
+  effect_allele_col = "Effect_cad",
+  other_allele_col = "Other_cad",
+  pval_col = "pvalue_cad"
+)
+
+dim(cad_out)
+
+exp_out_harm <- harmonise_data( exposure_dat = hgt_exp, outcome_dat = cad_out)
+dim(exp_out_harm)
+
+table(exp_out_harm$mr_keep)
+
+
+snps_for_mr <- subset(exp_out_harm, mr_keep==TRUE, select=c(SNP, beta.exposure, se.exposure, beta.outcome, se.outcome))
+write.table(snps_for_mr, "/data/WHRI-Panos-Scratch/hhy600/Height_Lung_CVD/Results/HGT_CAD_20150_20151_NEIL/snps_for_RadialMR.txt", sep="\t", quote=FALSE, row.names=FALSE)
+
+#####################################################################################################################################
+# 5 methods
+#####################################################################################################################################
+results <- mr(exp_out_harm, method_list = c('mr_ivw', 'mr_ivw_mre', 'mr_ivw_fe', 'mr_weighted_median','mr_egger_regression' ))
+
+#####################################################################################################################################
+# CI AND OR
+#####################################################################################################################################
+
+generate_odds_ratios(results)
+
+#####################################################################################################################################
+# scatter plot for the MR methods
+#####################################################################################################################################
+
+# scatter plot for the MR methods
+jpeg("/data/WHRI-Panos-Scratch/hhy600/Height_Lung_CVD/Results/HGT_CAD_20150_20151_NEIL_PLOTS/scater_plot.png" , width=2000, height=1500)
+mr_scatter_plot(results, exp_out_harm)
+dev.off()
+
+#####################################################################################################################################
+# heterogeneity
+#####################################################################################################################################
+
+# Some of the MR methods can also perform tests for heterogeneity.
+hetrogeneity <- mr_heterogeneity(exp_out_harm)
+hetrogeneity
+
+#####################################################################################################################################
+# pleiotropy
+#####################################################################################################################################
+
+# The intercept term in MR Egger regression can be a useful indication of whether directional horizontal pleiotropy is driving the results of an MR analysis. This can be obtained as follows:
+pleitropy <- mr_pleiotropy_test(exp_out_harm)
+pleitropy
+
+#####################################################################################################################################
+# forestplot AND funnelplot
+#####################################################################################################################################
+# To obtain the MR estimates using each of the SNPs singly we can do the following:
+res_single <- mr_singlesnp(exp_out_harm)
+write.table(res_single, "/data/WHRI-Panos-Scratch/hhy600/Height_Lung_CVD/Results/HGT_CAD_20150_20151_NEIL/res_single.txt", sep="\t", quote=FALSE, row.names=FALSE)
+
+# forestplot
+jpeg("/data/WHRI-Panos-Scratch/hhy600/Height_Lung_CVD/Results/HGT_CAD_20150_20151_NEIL_PLOTS/forest_plot.png")
+mr_forest_plot(res_single)
+dev.off()
+
+# Asymmetry in a funnel plot is useful for gauging the reliability of a particular MR analysis.
+jpeg("/data/WHRI-Panos-Scratch/hhy600/Height_Lung_CVD/Results/HGT_CAD_20150_20151_NEIL_PLOTS/funnel_plot.png")
+mr_funnel_plot(res_single)
+dev.off()
+
+#####################################################################################################################################
+# MRPRESSO
+
+cd /data/WHRI-Panos-Scratch/hhy600/Height_Lung_CVD/Results/HGT_CAD_20150_20151_NEIL
+chmod +x mr_presso.sh
+qsub -b y -V -cwd -l h_vmem=10G,h_rt=240:00:00 -l owned=0 -m e ./mr_presso.sh
