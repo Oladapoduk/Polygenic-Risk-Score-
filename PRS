@@ -1,0 +1,87 @@
+# initial files to create
+# rs.txt > this file has 1 column with rsids
+# rs_allele_ones.txt > a file containing 3 columns: rsid, INC_ALLELE, ones (ones= number 1 if you want an unweighted score)
+# you can use 1 of the following depending the participants you want to include
+# /data/WHRI-Panos-Scratch/hhy600/new_fam_bed_bim_files/fid_iid_included_brit.txt > white british IDs after removing outliers, mismatches, etc 
+# /data/WHRI-Panos-Scratch/hhy600/new_fam_bed_bim_files/fid_iid_included.txt  > transethnic IDs after removing outliers, mismatches, etc 
+#####################################################################################################################################################
+
+######################         1)
+#!/bin/bash
+for i in {1..22}
+do
+echo "#!/bin/bash
+module load plink
+cd /data/WHRI-Panos-Scratch/hhy600/1KG_Only_withOUTUKB_EUR_Areti/plink_files_unw 
+plink --memory 150000 --bed /data/WHRI-UKBB/plink_V3/ukb_imp_chr"$i"_v3.bed --bim /data/WHRI-UKBB/plink_V3/ukb_imp_chr"$i"_v3.bim --fam /data/WHRI-Panos-Scratch/hhy600/FAM/ukb53723_imp_v3_s487314.fam --extract directory/rs.txt --keep /data/WHRI-Panos-Scratch/hhy600/new_fam_bed_bim_files/fid_iid_included_brit.txt  --make-bed --out your_dir/snps_chr"$i"">> snps_extract_chr$i.sh
+done
+
+# save the lines 10-17 in a file named snp_extraction.sh and execute with the following
+cd your_directory
+chmod +x snp_extraction.sh
+qsub -b y -V -cwd -l h_vmem=10G -m e ./snp_extraction.sh
+
+######################         2)
+#!/bin/bash
+for i in {1..22}
+do
+cd your_directory
+qsub -b y -V -cwd -l h_vmem=30G  ./snps_extract_chr$i.sh
+done
+
+# save the lines 26-30 in a file named bed_bim_fam.sh and execute with the following
+cd your_directory
+chmod +x bed_bim_fam.sh
+qsub -b y -V -cwd -l h_vmem=10G  -m e ./bed_bim_fam.sh
+
+######################         3)
+# in order to merge all the chromosomes together for all the bed, bim, fam files
+# I use the file snp_all_files.txt > it could vary depending on the chromosomes you have
+
+
+#!/bin/bash
+module load plink
+cd your_directory
+plink --bfile snps_chr1 --merge-list snp_all_files.txt --make-bed --out snps_all_chr
+
+# save the lines 42-45 in a file named snp_all_files.sh and execute with the following
+cd your_directory
+chmod +x snp_all_files.sh
+qsub -b y -V -cwd -l h_vmem=20G  -m e ./snp_all_files.sh
+
+less snps_all_chr.log
+
+######################         4)
+# create the score unweighted
+
+#!/bin/bash
+module load plink
+cd your_directory
+plink --bfile snps_all_chr --score  rs_allele_ones.txt sum --score-no-mean-imputation --out covid_grs
+
+# save the lines 57-60 in a file named covid_grs.sh (or however you want) and execute with the following
+cd your_directory
+chmod +x covid_grs.sh
+qsub -b y -V -cwd -l h_vmem=10G  -m e ./covid_grs.sh
+
+rm *.sh.e*
+rm *.sh.o*
+
+######################         5)
+# extract the columns with IID and SCORE
+less covid_grs.profile
+awk '{print $2,$6}' covid_grs.profile  | sed 's/ /\t/g' > covid_grs.txt
+
+######################         6)
+# standardize the score for ALL PARTICIPANTS
+qlogin
+module load R
+R
+
+covid_grs <- readr::read_tsv("covid_grs.txt")
+dim(covid_grs)
+
+covid_grs$score_stand <- scale(covid_grs$SCORESUM)
+covid_grs_stand <- subset(covid_grs, select=-c(SCORESUM))
+
+write.table(covid_grs_stand, "covid_grs_stand.txt", sep="\t", quote=FALSE, row.names=FALSE)
